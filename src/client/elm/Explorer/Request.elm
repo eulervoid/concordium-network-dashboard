@@ -174,7 +174,7 @@ finalizerInfoDecoder =
 {-| The default Http.expectJson / Http.expectString don't allow you to see any body
 returned in an error (i.e. 403) states. The following docs;
 <https://package.elm-lang.org/packages/elm/http/latest/Http#expectStringResponse>
-describe our sitution perfectly, so that's that code below, with a modified
+describe our situation perfectly, so that's that code below, with a modified
 Http.BadStatus\_ handler to map it to BadBody String instead of BadStatus Int
 so we can actually see the error message if the JSON doesn't parse
 -}

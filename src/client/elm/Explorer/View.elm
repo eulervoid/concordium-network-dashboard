@@ -25,7 +25,7 @@ type Msg
     | BlockClicked String
 
 
-view : Context a -> WebData BlockInfo -> WebData BlockSummary -> Element Msg
+view : Context a -> RemoteData String BlockInfo -> RemoteData String BlockSummary -> Element Msg
 view ctx remoteBlockInfo remoteBlockSummary =
     column [ spacing 40, width fill ]
         [ viewContainer ctx

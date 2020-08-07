@@ -230,7 +230,7 @@ onRouteInit page model =
 
         ChainSelected hash ->
             ( { model | chainModel = Chain.selectBlock model.chainModel hash }
-            , Explorer.Request.getBlockInfo model.explorerModel.config hash (ExplorerMsg << Explorer.ReceivedBlockInfo)
+            , Explorer.Request.getBlockInfo model.explorerModel.config hash (ExplorerMsg << Explorer.ReceivedBlockInfo hash)
             )
 
         _ ->

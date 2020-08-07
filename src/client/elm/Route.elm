@@ -6,7 +6,7 @@ import Url.Parser exposing (..)
 
 type Route
     = Network
-    | NodeView String -- Node by nodeId
+    | NodeView String
     | ChainInit
     | ChainSelected String
 

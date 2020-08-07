@@ -17,7 +17,7 @@ type alias Widget =
     , title : String
     , description : String
     , icon : String
-    , value : WebData String
+    , value : RemoteData String String
     , subvalue : Maybe String
     }
 
@@ -97,7 +97,7 @@ viewWidget ctx widget =
 -- Remote Data Helper
 
 
-remoteDataView : Palette Color -> (c -> Element msg) -> RemoteData e c -> Element msg
+remoteDataView : Palette Color -> (c -> Element msg) -> RemoteData String c -> Element msg
 remoteDataView palette successView remoteData =
     case remoteData of
         NotAsked ->
@@ -106,8 +106,8 @@ remoteDataView palette successView remoteData =
         Loading ->
             loader palette.fg3
 
-        Failure error ->
-            badge palette.warning "Error"
+        Failure err ->
+            badge palette.warning <| "Error: " ++ err ++ "."
 
         Success data ->
             successView data

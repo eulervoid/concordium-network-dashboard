@@ -80,9 +80,9 @@ type alias Config =
 
 type alias Model =
     { config : Config
-    , nodes : WebData (Dict Host NetworkNode)
+    , nodes : RemoteData String (Dict Host NetworkNode)
     , sortMode : SortMode
-    , selectedNode : WebData (Result String NetworkNode)
+    , selectedNode : RemoteData String (Result String NetworkNode)
     }
 
 
@@ -220,7 +220,7 @@ findNodeById nodeId =
     Dict.find (\_ n -> n.nodeId == nodeId) >> Maybe.map Tuple.second
 
 
-viewSummaryWidgets : Context a -> WebData (Dict Host NetworkNode) -> Element msg
+viewSummaryWidgets : Context a -> RemoteData String (Dict Host NetworkNode) -> Element msg
 viewSummaryWidgets ctx remoteNodes =
     column [ spacing 12, width fill ]
         [ wrappedRow [ spacing 12, width fill ]

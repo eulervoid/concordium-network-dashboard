@@ -5,6 +5,8 @@ const OpenBrowserPlugin = require('open-browser-webpack-plugin');
 const config = require('./src/server/config');
 const nodeModulesPath = path.resolve(__dirname, 'node_modules');
 
+const ElmMinify = require('elm-minify');
+
 const plugins = [
   new HtmlWebpackPlugin({
     filename: 'index.html',
@@ -14,6 +16,7 @@ const plugins = [
         isProduction: config.isProduction,
     },
   }),
+  new ElmMinify.WebpackPlugin(),
 ];
 
 if (!config.isProduction) {
@@ -45,9 +48,6 @@ module.exports = {
       },
     },
   },
-  devServer: {
-    port: 8090
-  },
   module: {
     rules: [
       {
@@ -66,7 +66,7 @@ module.exports = {
           {
             loader: "elm-webpack-loader",
             options:
-              config.isProduction ? {} : { debug: true, forceWatch: true }
+              config.isProduction ? {optimize: true } : { debug: true, forceWatch: true }
           }
         ]
       }

@@ -14,6 +14,7 @@ import Html.Attributes exposing (style)
 import Icons exposing (..)
 import Palette exposing (withAlphaEl)
 import Set exposing (Set)
+import String exposing (toLower, toUpper)
 import Svg exposing (Svg)
 import Time
 import TimeHelpers
@@ -27,21 +28,31 @@ import Widgets exposing (arrowRight, remoteDataView)
 type Msg
     = CopyToClipboard String
     | BlockClicked String
-    | ToggleDetails Int
+    | ToggleDetails Int Int
 
 
 type alias SummaryItem =
-    { content : List (Element Msg), details : Maybe (Element Msg) }
+    List SummaryItemEvent
 
 
-isJust : Maybe a -> Bool
-isJust maybe =
-    case maybe of
-        Just _ ->
-            True
+bakingRewardAccountUpper =
+    "Baking reward account"
 
-        Nothing ->
-            False
+
+bakingRewardAccountLower =
+    toLower bakingRewardAccountUpper
+
+
+finalizationRewardAccountUpper =
+    "Finalization reward account"
+
+
+finalizationRewardAccountLower =
+    toLower finalizationRewardAccountUpper
+
+
+type alias SummaryItemEvent =
+    { content : Element Msg, details : Maybe (Element Msg) }
 
 
 view : Context a -> Model -> Element Msg
@@ -57,7 +68,7 @@ view ctx model =
                                     let
                                         transactionSummaries =
                                             blockSummary.transactionSummaries
-                                                |> List.concatMap (viewTransaction ctx)
+                                                |> List.concatMap (viewTransactionSummary ctx)
 
                                         specialEvents =
                                             blockSummary.specialEvents
@@ -66,8 +77,44 @@ view ctx model =
                                         finalizations =
                                             viewFinalizationData ctx blockSummary.finalizationData
 
+                                        summaryItems : List SummaryItem
                                         summaryItems =
-                                            transactionSummaries ++ specialEvents ++ finalizations
+                                            transactionSummaries :: specialEvents ++ [ finalizations ]
+
+                                        viewWithDetails content details displayDetails itemIndex eventIndex =
+                                            [ el
+                                                ([ width fill
+                                                 , onClick (ToggleDetails itemIndex eventIndex)
+                                                 , pointer
+                                                 , htmlAttribute <| style "transition" "border 200ms ease-in"
+                                                 ]
+                                                    ++ (if displayDetails then
+                                                            [ Background.color <| Palette.lightish ctx.palette.bg2
+                                                            , Border.color (Palette.lightish ctx.palette.bg2)
+                                                            ]
+
+                                                        else
+                                                            []
+                                                       )
+                                                )
+                                                content
+                                            , el
+                                                ([ width fill
+                                                 , Background.color <| Palette.veryLight ctx.palette.bg2
+                                                 , htmlAttribute <| style "transition" "max-height 200ms ease-in"
+                                                 ]
+                                                    ++ (if displayDetails then
+                                                            [ htmlAttribute <| style "max-height" "1000px"
+                                                            ]
+
+                                                        else
+                                                            [ htmlAttribute <| style "max-height" "0"
+                                                            , htmlAttribute <| style "overflow-y" "hidden"
+                                                            ]
+                                                       )
+                                                )
+                                                details
+                                            ]
                                     in
                                     if List.isEmpty summaryItems then
                                         column [ width fill ] [ text "This block has no transactions in it." ]
@@ -75,55 +122,28 @@ view ctx model =
                                     else
                                         column [ width fill ] <|
                                             List.concat <|
-                                                List.indexedMap
-                                                    (\index summaryItem ->
-                                                        let
-                                                            displayDetails =
-                                                                Set.member index detailsDisplayed
-                                                        in
-                                                        [ viewItemRow ctx
-                                                            (if isJust summaryItem.details then
-                                                                [ onClick (ToggleDetails index), pointer, htmlAttribute <| style "transition" "border 200ms ease-in" ]
-                                                                    ++ (if displayDetails then
-                                                                            [ Background.color <| Palette.lightish ctx.palette.bg2
-                                                                            , Border.color (Palette.lightish ctx.palette.bg2)
-                                                                            ]
+                                                List.concat <|
+                                                    List.indexedMap
+                                                        (\itemIndex summaryItem ->
+                                                            List.indexedMap
+                                                                (\eventIndex summaryItemEvent ->
+                                                                    case summaryItemEvent.details of
+                                                                        Just details ->
+                                                                            let
+                                                                                displayDetails =
+                                                                                    detailsDisplayed
+                                                                                        |> Dict.get itemIndex
+                                                                                        |> Maybe.withDefault Set.empty
+                                                                                        |> Set.member eventIndex
+                                                                            in
+                                                                            viewWithDetails summaryItemEvent.content details displayDetails itemIndex eventIndex
 
-                                                                        else
-                                                                            []
-                                                                       )
-
-                                                             else
-                                                                []
-                                                            )
-                                                            summaryItem.content
-                                                        ]
-                                                            ++ (case summaryItem.details of
-                                                                    Just details ->
-                                                                        [ el
-                                                                            ([ width fill
-                                                                             , Background.color <| Palette.veryLight ctx.palette.bg2
-                                                                             , htmlAttribute <| style "transition" "max-height 200ms ease-in"
-                                                                             ]
-                                                                                ++ bottomBorder ctx
-                                                                                ++ (if displayDetails then
-                                                                                        [ htmlAttribute <| style "max-height" "1000px"
-                                                                                        ]
-
-                                                                                    else
-                                                                                        [ htmlAttribute <| style "max-height" "0"
-                                                                                        , htmlAttribute <| style "overflow-y" "hidden"
-                                                                                        ]
-                                                                                   )
-                                                                            )
-                                                                            details
-                                                                        ]
-
-                                                                    Nothing ->
-                                                                        []
-                                                               )
-                                                    )
-                                                    summaryItems
+                                                                        Nothing ->
+                                                                            [ summaryItemEvent.content ]
+                                                                )
+                                                                summaryItem
+                                                        )
+                                                        summaryItems
                                 )
                                 model.blockSummary
                     in
@@ -322,31 +342,17 @@ bottomBorder ctx =
     ]
 
 
-viewContentHeadline : Context a -> Element msg
-viewContentHeadline ctx =
-    row
-        ([ width fill
-         , height (px 26)
-         , paddingXY 10 0
-         , spacing 15
-         ]
-            ++ bottomBorder ctx
-        )
-        [ el [ width (shrink |> minimum 30) ]
-            (el [ Font.color ctx.palette.fg1 ] <| text "TYPE")
-        , el [ width (shrink |> minimum 95) ]
-            (el [ Font.color ctx.palette.fg1 ] <| text "SENDER")
-        , row []
-            [ el [ Font.color ctx.palette.fg1 ] <| text "CONTENT"
-            ]
-        , el [ width (shrink |> minimum 120), alignRight ]
-            (el [ Font.color ctx.palette.fg1, alignRight ] <| text "COST")
-        , el [ width (shrink |> minimum 105), alignRight ]
-            (el [ Font.color ctx.palette.fg1 ] <| text "TX HASH")
-        ]
+viewContentCells : { tipe : Element msg, sender : Element msg, event : Element msg, cost : Element msg, txHash : Element msg } -> List (Element msg)
+viewContentCells content =
+    [ el [ width (shrink |> minimum 30) ] content.tipe
+    , el [ width fill ] content.event
+    , el [ width (shrink |> minimum 95) ] content.sender
+    , el [ width (shrink |> minimum 120) ] content.cost
+    , el [ width (shrink |> minimum 105) ] content.txHash
+    ]
 
 
-viewItemRow : Context a -> List (Attribute Msg) -> List (Element Msg) -> Element Msg
+viewItemRow : Context a -> List (Attribute msg) -> List (Element msg) -> Element msg
 viewItemRow ctx attrs children =
     row
         ([ width fill
@@ -361,20 +367,40 @@ viewItemRow ctx attrs children =
         children
 
 
+viewContentHeadline : Context a -> Element msg
+viewContentHeadline ctx =
+    viewItemRow ctx [ height (px 26), mouseOver [] ] <|
+        viewContentCells
+            { tipe = el [ Font.color ctx.palette.fg1 ] <| text ""
+            , sender = el [ Font.color ctx.palette.fg1, centerX ] <| text "SENDER"
+            , event = el [ Font.color ctx.palette.fg1 ] <| text "EVENTS"
+            , cost = el [ Font.color ctx.palette.fg1, centerX ] <| text "COST"
+            , txHash = el [ Font.color ctx.palette.fg1 ] <| text "TX HASH"
+            }
+
+
 type alias TransactionEventItem =
-    { icon : Element Msg
-    , tooltip : String
-    , content : List (Element Msg)
+    { content : List (Element Msg)
     , details : Maybe (Element Msg)
     }
 
 
-viewTransaction : Context a -> TransactionSummary -> List SummaryItem
-viewTransaction ctx txSummary =
+viewTransactionSummary : Context a -> TransactionSummary -> SummaryItem
+viewTransactionSummary ctx txSummary =
     let
-        sender =
-            txSummary.sender
-                |> Maybe.map T.AddressAccount
+        typeDecription =
+            typeDescriptionTransactionSummaryType txSummary.tipe
+
+        icon =
+            iconFromTypeDescription ctx typeDecription
+
+        senderView event =
+            case txSummary.sender of
+                Just address ->
+                    viewAddress ctx <| T.AddressAccount address
+
+                Nothing ->
+                    softSenderFallback event
 
         softSenderFallback event_ =
             case event_ of
@@ -385,81 +411,357 @@ viewTransaction ctx txSummary =
                     el [ Font.color ctx.palette.fg1 ] <| viewAddress ctx (T.AddressAccount event.account)
 
                 TransactionEventUpdateEnqueued _ ->
-                    el [ Font.color ctx.palette.fg1 ] <| text "Foundation"
+                    el [ Font.color ctx.palette.fg1 ] <| text "Governance"
 
                 _ ->
                     none
-    in
-    case txSummary.result of
-        TransactionAccepted events ->
-            let
-                v event =
-                    let
-                        item =
-                            viewTransactionEvent ctx event
-                    in
-                    { content =
-                        [ el [ width (shrink |> minimum 30) ] <|
-                            el [ stringTooltipAbove ctx item.tooltip ] item.icon
-                        , el [ width (shrink |> minimum 95) ] <|
-                            case sender of
-                                Just address ->
-                                    viewAddress ctx address
 
-                                Nothing ->
-                                    softSenderFallback event
-                        ]
-                            ++ item.content
-                            ++ [ el [ width (shrink |> minimum 120), alignRight ]
-                                    (el [ alignRight ] <| text <| T.amountToString txSummary.cost)
-                               , el
-                                    [ alignRight
-                                    , stringTooltipAboveWithCopy ctx txSummary.hash
+        viewMainEventItem event =
+            let
+                item =
+                    viewTransactionEvent ctx event
+            in
+            { content =
+                viewItemRow ctx [] <|
+                    viewContentCells
+                        { tipe = icon
+                        , sender = senderView event
+                        , event = row [] item.content
+                        , cost = el [ alignRight ] <| text <| T.amountToString txSummary.cost
+                        , txHash =
+                            row [ width fill ]
+                                [ el
+                                    [ stringTooltipAboveWithCopy ctx txSummary.hash
                                     , pointer
                                     , onClick (CopyToClipboard txSummary.hash)
                                     ]
                                     (el [ alignRight ] <| text <| String.left 8 txSummary.hash)
-                               , el [ alignRight ] (html <| Icons.status_success 20)
-                               ]
-                    , details = item.details
-                    }
+                                , el [ alignRight ] (html <| Icons.status_success 20)
+                                ]
+                        }
+            , details = item.details
+            }
+
+        viewSubEvent event =
+            let
+                item =
+                    viewTransactionEvent ctx event
             in
-            events
-                |> List.map v
+            { content =
+                viewItemRow ctx [] <|
+                    viewContentCells
+                        { tipe = none
+                        , sender = none
+                        , event =
+                            row [] <|
+                                el [ width (px 20) ] none
+                                    :: item.content
+                        , cost = none
+                        , txHash = none
+                        }
+            , details = item.details
+            }
+    in
+    case txSummary.result of
+        TransactionAccepted events ->
+            case events of
+                [] ->
+                    []
 
-        TransactionRejected tag contents ->
+                mainEvent :: subEvents ->
+                    viewMainEventItem mainEvent :: List.map viewSubEvent subEvents
+
+        TransactionRejected rejectReason ->
+            let
+                item =
+                    rejectionToItem ctx rejectReason
+            in
             [ { content =
-                    [ row [ width (shrink |> minimum 30) ]
-                        [ el [ Font.color ctx.palette.failure ]
-                            (iconForTag ctx tag)
-                        ]
-                    , el [ width (shrink |> minimum 95) ] <|
-                        case sender of
-                            Just address ->
-                                viewAddress ctx address
-
-                            Nothing ->
-                                none
-                    , paragraph [ Font.color ctx.palette.failure ] <|
-                        if contents /= "" then
-                            [ text <| tag ++ ": " ++ contents ]
-
-                        else
-                            [ text <| tag ]
-                    , el [ width (shrink |> minimum 120), alignRight ]
-                        (el [ alignRight ] <| text <| T.amountToString txSummary.cost)
-                    , el
-                        [ alignRight
-                        , stringTooltipAboveWithCopy ctx txSummary.hash
-                        , pointer
-                        , onClick (CopyToClipboard txSummary.hash)
-                        ]
-                        (el [ alignRight ] <| text <| String.left 8 txSummary.hash)
-                    , el [ alignRight, Font.color ctx.palette.failure ] (html <| Icons.status_failure 20)
-                    ]
+                    viewItemRow ctx [] <|
+                        viewContentCells
+                            { tipe = icon
+                            , sender = Maybe.withDefault none <| Maybe.map (viewAddress ctx << T.AddressAccount) txSummary.sender
+                            , event = paragraph [ Font.color ctx.palette.failure, width fill ] <| (text <| typeDecription.short ++ " failed: ") :: item.content
+                            , cost = el [ alignRight ] <| text <| T.amountToString txSummary.cost
+                            , txHash =
+                                row [ width fill ]
+                                    [ el
+                                        [ stringTooltipAboveWithCopy ctx txSummary.hash
+                                        , pointer
+                                        , onClick (CopyToClipboard txSummary.hash)
+                                        ]
+                                        (el [ alignRight ] <| text <| String.left 8 txSummary.hash)
+                                    , el [ alignRight, Font.color ctx.palette.failure ] (html <| Icons.status_failure 20)
+                                    ]
+                            }
               , details = Nothing
               }
             ]
+
+
+type alias TypeDescription =
+    { icon : Element Msg
+
+    {- |Short description
+
+       It is used to display as the intention of the transaction, and is sometimes appended with ' failed:'.
+    -}
+    , short : String
+    }
+
+
+iconFromTypeDescription : Context a -> TypeDescription -> Element Msg
+iconFromTypeDescription ctx tyDesc =
+    el [ stringTooltipAbove ctx tyDesc.short ] tyDesc.icon
+
+
+typeDescriptionTransactionSummaryType : TransactionSummaryType -> TypeDescription
+typeDescriptionTransactionSummaryType transactionSummaryType =
+    case transactionSummaryType of
+        AccountTransaction ty ->
+            typeDescriptionAccountTransactionType ty
+
+        CredentialDeploymentTransaction ty ->
+            typeDescriptionCredentialType ty
+
+        UpdateTransaction ty ->
+            typeDescriptionUpdateType ty
+
+
+typeDescriptionAccountTransactionType : AccountTransactionType -> TypeDescription
+typeDescriptionAccountTransactionType accountTransactionType =
+    case accountTransactionType of
+        DeployModule ->
+            { icon = html <| Icons.smart_contract_deploy 20, short = "Deploy module" }
+
+        InitContract ->
+            { icon = html <| Icons.smart_contract_add_new 20, short = "Initialize contract" }
+
+        Update ->
+            { icon = html <| Icons.smart_contract_message 20, short = "Update contract" }
+
+        Transfer ->
+            { icon = html <| Icons.transaction 18, short = "Transfer" }
+
+        AddBaker ->
+            { icon = html <| Icons.baking_bread 20, short = "Add baker" }
+
+        RemoveBaker ->
+            { icon = html <| Icons.baking_bread 20, short = "Remove baker" }
+
+        UpdateBakerStake ->
+            { icon = html <| Icons.baking_bread 20, short = "Update baker stake" }
+
+        UpdateBakerRestakeEarnings ->
+            { icon = html <| Icons.baking_bread 20, short = "Change baker restake earnings" }
+
+        UpdateBakerKeys ->
+            { icon = html <| Icons.baking_bread 20, short = "Update baker keys" }
+
+        UpdateAccountKeys ->
+            { icon = html <| Icons.account_key_deployed 18, short = "Update account keys" }
+
+        AddAccountKeys ->
+            { icon = html <| Icons.account_key_deployed 18, short = "Add account keys" }
+
+        RemoveAccountKeys ->
+            { icon = html <| Icons.account_key_deployed 18, short = "Remove account keys" }
+
+        EncryptedAmountTransfer ->
+            { icon = html <| Icons.shield 20, short = "Shielded transfer" }
+
+        TransferToEncrypted ->
+            { icon = html <| Icons.shield 20, short = "Shield amount" }
+
+        TransferToPublic ->
+            { icon = html <| Icons.shield 20, short = "Unshield amount" }
+
+        TransferWithSchedule ->
+            { icon = html <| Icons.transaction 18, short = "Transfer with schedule" }
+
+        Malformed ->
+            { icon = el [ paddingXY 6 0 ] <| text "?", short = "Serialization" }
+
+
+typeDescriptionCredentialType : CredentialType -> TypeDescription
+typeDescriptionCredentialType credentialType =
+    case credentialType of
+        Initial ->
+            { icon = html <| Icons.account_credentials_deployed 18, short = "Deploy initial credential" }
+
+        Normal ->
+            { icon = html <| Icons.account_credentials_deployed 18, short = "Deploy normal credential" }
+
+
+typeDescriptionUpdateType : UpdateType -> TypeDescription
+typeDescriptionUpdateType updateType =
+    { icon = html <| Icons.system_cog 20
+    , short = "Enqueue chain update"
+    }
+
+
+rejectionToItem : Context a -> RejectReason -> { content : List (Element Msg), details : Maybe (Element Msg) }
+rejectionToItem ctx reason =
+    case reason of
+        ModuleNotWF ->
+            { content = [ text "Smart contract module failed to typecheck" ]
+            , details = Nothing
+            }
+
+        ModuleHashAlreadyExists moduleRef ->
+            { content = [ text "A module with the hash ", text moduleRef, text " already exists" ]
+            , details = Nothing
+            }
+
+        InvalidAccountReference addr ->
+            { content = [ text "The account ", viewAddress ctx <| T.AddressAccount addr, text " does not exists" ]
+            , details = Nothing
+            }
+
+        InvalidModuleReference moduleRef ->
+            { content = [ text "The module ", text moduleRef, text " does not exists" ]
+            , details = Nothing
+            }
+
+        InvalidContractAddress contractAddr ->
+            { content = [ text "No smart contract instance exists with address ", viewAddress ctx <| T.AddressContract contractAddr ]
+            , details = Nothing
+            }
+
+        ReceiverAccountNoCredential addr ->
+            { content = [ text "The receiving account ", viewAddress ctx <| T.AddressAccount addr, text " has no valid credential" ]
+            , details = Nothing
+            }
+
+        ReceiverContractNoCredential addr ->
+            { content = [ text "The receiving smart contract instance (", viewAddress ctx <| T.AddressContract addr, text ") has no valid credential" ]
+            , details = Nothing
+            }
+
+        AmountTooLarge account amount ->
+            { content = [ text "The sending account ", viewAddress ctx <| account, text " has insufficient funds" ]
+            , details = Nothing
+            }
+
+        SerializationFailure ->
+            { content = [ text "The transaction body was malformed" ]
+            , details = Nothing
+            }
+
+        OutOfEnergy ->
+            { content = [ text "The transaction ran out of energy" ]
+            , details = Nothing
+            }
+
+        Rejected ->
+            { content = [ text "Rejected by contract logic" ]
+            , details = Nothing
+            }
+
+        NonExistentRewardAccount addr ->
+            { content = [ text "The designated reward account ", viewAddress ctx <| T.AddressAccount addr, text " does not exist" ]
+            , details = Nothing
+            }
+
+        InvalidProof ->
+            { content = [ text "Proof that the baker owns relevant private keys is not valid" ]
+            , details = Nothing
+            }
+
+        InvalidInitMethod moduleRef initName ->
+            { content = [ text "No contract '", text initName, text "' found in module ", text moduleRef ]
+            , details = Nothing
+            }
+
+        InvalidReceiveMethod moduleRef receiveName ->
+            { content = [ text "No receive function '", text receiveName.functionName, text " of contract '", text receiveName.contractName, text "' found in module ", text moduleRef ]
+            , details = Nothing
+            }
+
+        RuntimeFailure ->
+            { content = [ text "Runtime failure when executing smart contract" ]
+            , details = Nothing
+            }
+
+        DuplicateAggregationKey _ ->
+            { content = [ text "Duplicate aggregation key" ]
+            , details = Nothing
+            }
+
+        NonExistentAccountKey ->
+            { content = [ text "Encountered index to which no account key belongs when removing or updating keys" ]
+            , details = Nothing
+            }
+
+        KeyIndexAlreadyInUse ->
+            { content = [ text "The requested key index is already in use" ]
+            , details = Nothing
+            }
+
+        InvalidAccountKeySignThreshold ->
+            { content = [ text "The requested sign threshold would exceed the number of keys on the account" ]
+            , details = Nothing
+            }
+
+        InvalidEncryptedAmountTransferProof ->
+            { content = [ text "The shielded amount transfer has an invalid proof" ]
+            , details = Nothing
+            }
+
+        EncryptedAmountSelfTransfer _ ->
+            { content = [ text "An shielded amount transfer from the account to itself is not allowed" ]
+            , details = Nothing
+            }
+
+        InvalidTransferToPublicProof ->
+            { content = [ text "The shielding has an invalid proof" ]
+            , details = Nothing
+            }
+
+        InvalidIndexOnEncryptedTransfer ->
+            { content = [ text "The provided shielded transfer index is out of bounds" ]
+            , details = Nothing
+            }
+
+        ZeroScheduledAmount ->
+            { content = [ text "Attempt to transfer 0 GTU with schedule" ]
+            , details = Nothing
+            }
+
+        NonIncreasingSchedule ->
+            { content = [ text "Attempt to transfer amount with non-increasing schedule" ]
+            , details = Nothing
+            }
+
+        FirstScheduledReleaseExpired ->
+            { content = [ text "The first scheduled release is in the past" ]
+            , details = Nothing
+            }
+
+        ScheduledSelfTransfer _ ->
+            { content = [ text "Attempt to transfer from account A to A with schedule" ]
+            , details = Nothing
+            }
+
+        AlreadyABaker bakerId ->
+            { content = [ text "Baker with ID ", text <| String.fromInt bakerId, text " already exists" ]
+            , details = Nothing
+            }
+
+        NotABaker addr ->
+            { content = [ text "Account ", viewAddress ctx <| T.AddressAccount addr, text " is not a baker" ]
+            , details = Nothing
+            }
+
+        InsufficientBalanceForBakerStake ->
+            { content = [ text "Sender account has insufficient balance to cover the requested stake" ]
+            , details = Nothing
+            }
+
+        BakerInCooldown ->
+            { content = [ text "Request to make change to the baker while the baker is in the cooldown period" ]
+            , details = Nothing
+            }
 
 
 asPercentage : Float -> String
@@ -519,24 +821,37 @@ viewBar ctx parts =
                         , padding 4
                         , Font.center
                         , Font.color p.color
+                        , alignBottom
                         ]
                     <|
                         text p.hint
+                )
+                parts
+        , row [ width fill ] <|
+            List.map
+                (\p ->
+                    el
+                        [ width (fillPortion <| round (p.percentage * 100))
+                        , padding 4
+                        , Font.center
+                        , Font.color p.color
+                        ]
+                    <|
+                        text (asPercentage p.percentage)
                 )
                 parts
         , row [ width fill, Border.rounded 5, clip, Border.width 1, Border.color ctx.palette.bg1 ] <|
             List.map
                 (\p ->
                     el
-                        [ clip
-                        , width (fillPortion <| round (p.percentage * 100))
+                        [ width (fillPortion <| round (p.percentage * 100))
                         , Background.color p.color
                         , Font.color ctx.palette.bg1
-                        , padding 4
+                        , padding 5
                         , Font.center
                         ]
                     <|
-                        text (asPercentage p.percentage)
+                        Element.none
                 )
                 parts
         ]
@@ -550,31 +865,31 @@ viewDetailRow l r =
 viewSpecialEvent : Context a -> RewardParameters -> SpecialEvent -> SummaryItem
 viewSpecialEvent ctx rewardParameters specialEvent =
     let
-        { tooltip, icon, content, details } =
+        item =
             case specialEvent of
                 SpecialEventBakingRewards event ->
                     { tooltip = "Baking rewards"
                     , icon = Icons.coin_gtu 20
                     , content =
                         row [ spacing 10 ]
-                            [ text "Distributed Baking Reward Account" ]
+                            [ text <| "Distributed " ++ bakingRewardAccountLower ]
                     , details =
                         let
                             bakerRewardList =
                                 Dict.toList event.bakerRewards
 
                             bakingAccountDistributed =
-                                T.unsafeSumAmounts <| List.map (\( _, amount ) -> amount) bakerRewardList
+                                T.sumAmounts <| List.map Tuple.second bakerRewardList
 
                             bakingAccountTotal =
-                                T.unsafeAddAmounts event.remainder bakingAccountDistributed
+                                T.addAmounts event.remainder bakingAccountDistributed
                         in
                         viewDetailRow
-                            [ paragraph [] [ text "Every epoch, the Baking Reward Account is distributed among all bakers during the epoch." ]
-                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c1 "Baking Reward Account" bakingAccountTotal
+                            [ paragraph [] [ text <| "Every epoch, the " ++ bakingRewardAccountLower ++ " is distributed among all bakers during the epoch." ]
+                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c1 bakingRewardAccountUpper bakingAccountTotal
                             , paragraph [] [ text "The amount is distributed according to the share of blocks a baker have baked during the epoch." ]
-                            , paragraph [] [ text "Some amount of GTU might be left because of rounding, these are left in the Baking Reward Account for the next epoch." ]
-                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c1 "Baking Reward Account" event.remainder
+                            , paragraph [] [ text <| "Some amount of GTU might be left because of rounding, these are left in the " ++ bakingRewardAccountLower ++ " for the next epoch." ]
+                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c1 bakingRewardAccountUpper event.remainder
                             ]
                             [ viewTable ctx
                                 { data = Dict.toList event.bakerRewards
@@ -585,7 +900,7 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                                       }
                                     , { header = text "Share of baked blocks"
                                       , width = fill
-                                      , view = \i ( _, amount ) -> text <| asPercentage <| Maybe.withDefault 0 <| Maybe.map2 (\n d -> n / d) (T.amountToFloat amount) (T.amountToFloat bakingAccountDistributed)
+                                      , view = \i ( _, amount ) -> text <| asPercentage <| T.unsafeAmountDivide amount bakingAccountDistributed
                                       }
                                     , { header = text "Reward"
                                       , width = fill
@@ -606,7 +921,7 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                                 1 - rewardParameters.mintDistribution.bakingReward - rewardParameters.mintDistribution.finalizationReward
 
                             mintTotal =
-                                T.unsafeSumAmounts [ event.mintPlatformDevelopmentCharge, event.mintBakingReward, event.mintFinalizationReward ]
+                                T.sumAmounts [ event.mintPlatformDevelopmentCharge, event.mintBakingReward, event.mintFinalizationReward ]
                         in
                         column [ spacing 25, width fill ]
                             [ viewDetailRow
@@ -623,16 +938,16 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                                 ]
                             , viewDetailRow [ paragraph [] [ text "These GTU are distributed among special accounts for maintaining the blockchain and for rewarding bakers and finalizers. " ] ]
                                 [ viewBar ctx
-                                    [ { color = ctx.palette.c1, percentage = rewardParameters.mintDistribution.bakingReward, hint = "Baking Reward Account" }
-                                    , { color = ctx.palette.c2, percentage = rewardParameters.mintDistribution.finalizationReward, hint = "Finalization Reward Account" }
+                                    [ { color = ctx.palette.c1, percentage = rewardParameters.mintDistribution.bakingReward, hint = bakingRewardAccountUpper }
+                                    , { color = ctx.palette.c2, percentage = rewardParameters.mintDistribution.finalizationReward, hint = finalizationRewardAccountUpper }
                                     , { color = ctx.palette.fg2, percentage = foundationMintFraction, hint = "Foundation" }
                                     ]
                                 ]
                             , viewDetailRow
                                 []
                                 [ row [ spaceEvenly, centerX, spacing 30 ]
-                                    [ viewHeaderBox ctx ctx.palette.c1 "Baking Reward Account" <| viewPlusAmount ctx event.mintBakingReward
-                                    , viewHeaderBox ctx ctx.palette.c2 "Finalization Reward Account" <| viewPlusAmount ctx event.mintFinalizationReward
+                                    [ viewHeaderBox ctx ctx.palette.c1 bakingRewardAccountUpper <| viewPlusAmount ctx event.mintBakingReward
+                                    , viewHeaderBox ctx ctx.palette.c2 finalizationRewardAccountUpper <| viewPlusAmount ctx event.mintFinalizationReward
                                     , viewHeaderBox ctx ctx.palette.fg2 "Foundation" <| viewPlusAmount ctx event.mintPlatformDevelopmentCharge
                                     ]
                                 ]
@@ -642,20 +957,20 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                 SpecialEventFinalizationRewards event ->
                     { tooltip = "Rewarded finalizers"
                     , icon = Icons.coin_gtu 20
-                    , content = row [ spacing 10 ] [ text "Distributed Finalization Reward Account" ]
+                    , content = row [ spacing 10 ] [ text <| "Distributed " ++ finalizationRewardAccountLower ]
                     , details =
                         let
                             finalizationAccountDistributed =
-                                T.unsafeSumAmounts <| List.map (\( _, amount ) -> amount) <| Dict.toList event.finalizationRewards
+                                T.sumAmounts <| List.map Tuple.second <| Dict.toList event.finalizationRewards
 
                             finalizationAccountTotal =
-                                T.unsafeAddAmounts event.remainder finalizationAccountDistributed
+                                T.addAmounts event.remainder finalizationAccountDistributed
                         in
                         viewDetailRow
-                            [ paragraph [] [ text "Every time a finalization proof is included in a block, the Finalization Reward Account is distributed among the finalizers according to their share of the finalization stake." ]
-                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c2 "Finalization Reward Account" finalizationAccountTotal
-                            , paragraph [] [ text "The remaining GTU which does not distribute evenly, stays in the Finalization Reward Account for the next time." ]
-                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c2 "Finalization Reward Account" event.remainder
+                            [ paragraph [] [ text <| "Every time a finalization proof is included in a block the " ++ finalizationRewardAccountLower ++ " distributes a reward among the finalizers. The reward is proportional to the finalizers' share of finalization stake." ]
+                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c2 finalizationRewardAccountUpper finalizationAccountTotal
+                            , paragraph [] [ text <| "The remaining GTU (which does not distribute evenly among the finalizers) stays in the " ++ finalizationRewardAccountLower ++ "." ]
+                            , el [ centerX ] <| viewSpecialAccount ctx ctx.palette.c2 finalizationRewardAccountUpper event.remainder
                             ]
                             [ viewTable ctx
                                 { data = Dict.toList event.finalizationRewards
@@ -666,7 +981,7 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                                       }
                                     , { header = text "Finalizer stake"
                                       , width = fill
-                                      , view = \i ( _, amount ) -> text <| asPercentage <| Maybe.withDefault 0 <| Maybe.map2 (\n d -> n / d) (T.amountToFloat amount) (T.amountToFloat finalizationAccountTotal)
+                                      , view = \i ( _, amount ) -> text <| asPercentage <| T.unsafeAmountDivide amount finalizationAccountTotal
                                       }
                                     , { header = text "Reward"
                                       , width = fill
@@ -693,31 +1008,16 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                                 1 - (rewardParameters.transactionFeeDistribution.baker + rewardParameters.transactionFeeDistribution.gasAccount)
 
                             bakerRewardAmountTransactionFee =
-                                T.floorTo 6 <|
-                                    rewardParameters.transactionFeeDistribution.baker
-                                        * T.unsafeAmountToFloat event.transactionFees
+                                T.scaleAmount rewardParameters.transactionFeeDistribution.baker event.transactionFees
 
                             bakerRewardAmountFixedGasAccount =
-                                T.floorTo 6 <|
-                                    rewardParameters.gasRewards.baker
-                                        * T.unsafeAmountToFloat event.oldGASAccount
+                                T.scaleAmount rewardParameters.gasRewards.baker event.oldGASAccount
 
                             nonGasBakerAmount =
-                                T.floorTo 6 <|
-                                    T.unsafeAmountToFloat event.bakerReward
-                                        - bakerRewardAmountTransactionFee
-                                        - bakerRewardAmountFixedGasAccount
+                                T.subAmounts event.bakerReward <| T.addAmounts bakerRewardAmountTransactionFee bakerRewardAmountFixedGasAccount
 
                             nonGasFraction =
-                                let
-                                    oldGasAccount =
-                                        T.unsafeAmountToFloat event.oldGASAccount
-                                in
-                                if oldGasAccount == 0 then
-                                    0
-
-                                else
-                                    nonGasBakerAmount / oldGasAccount
+                                T.unsafeAmountDivide nonGasBakerAmount event.oldGASAccount
                         in
                         column [ width fill, spacing 30 ]
                             [ viewDetailRow
@@ -780,18 +1080,18 @@ viewSpecialEvent ctx rewardParameters specialEvent =
                             ]
                     }
     in
-    { content =
-        [ row [ spacing 10, width (shrink |> minimum 30) ]
-            [ el [ stringTooltipAbove ctx tooltip ]
-                (html <| icon)
-            ]
-        , el [ width (shrink |> minimum 95), Font.color ctx.palette.fg1 ]
-            (text "Chain")
-        , content
-        , el [ alignRight ] (html <| Icons.status_success 20)
-        ]
-    , details = Just details
-    }
+    [ { content =
+            viewItemRow ctx [] <|
+                viewContentCells
+                    { tipe = el [ stringTooltipAbove ctx item.tooltip ] (html <| item.icon)
+                    , sender = el [ Font.color ctx.palette.fg1 ] <| none --text "Chain"
+                    , event = item.content
+                    , cost = none
+                    , txHash = none
+                    }
+      , details = Just item.details
+      }
+    ]
 
 
 italic : String -> Element msg
@@ -804,7 +1104,17 @@ super str =
     html <| Html.sup [] [ Html.text str ]
 
 
-viewFinalizationData : Context a -> Maybe FinalizationData -> List SummaryItem
+capitalize : String -> String
+capitalize str =
+    case String.toList str of
+        [] ->
+            ""
+
+        c :: cs ->
+            String.fromList <| Char.toUpper c :: cs
+
+
+viewFinalizationData : Context a -> Maybe FinalizationData -> SummaryItem
 viewFinalizationData ctx finalizationData =
     case finalizationData of
         Just data ->
@@ -833,27 +1143,36 @@ viewFinalizationData ctx finalizationData =
                     tableColumn [ Font.bold ] -1 value
             in
             [ { content =
-                    [ row [ spacing 10, width (shrink |> minimum 30) ]
-                        [ el [ stringTooltipAbove ctx "Finalization event", Font.color ctx.palette.c2 ]
-                            (html <| Icons.block_finalized 20)
-                        ]
-                    , el [ width (shrink |> minimum 95), Font.color ctx.palette.fg1 ]
-                        (text "Chain")
-                    , row []
-                        [ text <| "Finalized "
-                        , el [] <| text <| String.left 8 data.blockPointer
-                        , text " "
-                        ]
-                    , el [ alignRight ] (html <| Icons.status_success 20)
-                    ]
+                    viewItemRow ctx
+                        []
+                    <|
+                        viewContentCells
+                            { tipe = el [ stringTooltipAbove ctx "Finalization event", Font.color ctx.palette.c2 ] <| html <| Icons.block_finalized 20
+                            , sender = el [ Font.color ctx.palette.fg1 ] <| none --text "Chain"
+                            , event = row [] [ text <| "Finalized ", el [] <| text <| String.left 8 data.blockPointer ]
+                            , cost = none
+                            , txHash = none
+                            }
               , details =
                     Just <|
                         column [ spacing 20 ]
                             [ viewDetailRow
-                                [ paragraph [ Font.center ] [ text "A proof of a block being finalized." ]
-                                , paragraph [ Font.center ] [ text <| "Finalized block: ", el [ onClick (BlockClicked data.blockPointer), pointer, Font.color ctx.palette.c2 ] <| text data.blockPointer ]
-                                , paragraph [ Font.center ] [ text <| "Index: " ++ String.fromInt data.index ]
-                                , paragraph [ Font.center ] [ text <| "Delay: " ++ String.fromInt data.delay ]
+                                [ paragraph [] [ text "A proof of a block being finalized." ]
+                                , paragraph [] [ text <| "Finalized block: ", el [ onClick (BlockClicked data.blockPointer), pointer, Font.color ctx.palette.c2 ] <| text data.blockPointer ]
+                                , paragraph [] [ text <| "Finalization index: " ++ String.fromInt data.index ]
+                                , paragraph []
+                                    [ text <|
+                                        "The finalized block had to have at least "
+                                            ++ String.fromInt data.delay
+                                            ++ " descending block"
+                                            ++ (if data.delay == 1 then
+                                                    ""
+
+                                                else
+                                                    "s"
+                                               )
+                                            ++ ", when it was finalized."
+                                    ]
                                 ]
                                 [ viewTable ctx
                                     { data = data.finalizers
@@ -932,6 +1251,8 @@ viewTable ctx table =
         , Border.width 1
         , Border.color ctx.palette.bg2
         , Border.rounded 5
+        , htmlAttribute <| style "overflow-y" "auto"
+        , htmlAttribute <| style "max-height" "800px"
         ]
         { data = table.data, columns = columns }
 
@@ -958,110 +1279,102 @@ isEven n =
     modBy 2 n == 0
 
 
-iconForTag : Context a -> String -> Element msg
-iconForTag ctx tag =
-    case tag of
-        "InvalidBakerRemoveSource" ->
-            el [ stringTooltipAbove ctx "Invalid baker remove source" ]
-                (html <| Icons.baking_bread 20)
-
-        "SerializationFailure" ->
-            el [ stringTooltipAbove ctx "Unknown" ]
-                (el [ paddingXY 6 0 ] <| text "?")
-
-        _ ->
-            el [ stringTooltipAbove ctx tag ]
-                (el [ paddingXY 6 0 ] <| text "?")
-
-
 viewTransactionEvent : Context a -> TransactionEvent -> TransactionEventItem
 viewTransactionEvent ctx txEvent =
     case txEvent of
         -- Transfers
         TransactionEventTransferred event ->
-            { icon = html <| Icons.transaction 18
-            , tooltip = "Transferred"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
-                    [ text <| "Transferred " ++ T.amountToString event.amount
-                    , arrowRight
+                    [ text <| "Transferred " ++ T.amountToString event.amount ++ " from "
+                    , viewAddress ctx event.from
+                    , text " to "
                     , viewAddress ctx event.to
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventTransferredWithSchedule event ->
-            -- TODO: Consider adding a different icon
-            { icon = html <| Icons.transaction 18
-            , tooltip = "Transferred with schedule"
-            , details = Nothing
-            , content =
+            let
+                totalAmount =
+                    event.releaseSchedule
+                        |> List.map Tuple.second
+                        |> T.sumAmounts
+            in
+            { content =
                 [ row []
                     [ text <| "Transferred with schedule"
                     , arrowRight
                     , viewAddress ctx (T.AddressAccount event.to)
-                    , text <| " " -- TODO: Use proper spacing
-                    , viewTransferredWithScheduleDetails ctx event
                     ]
                 ]
+            , details =
+                Just <|
+                    column [ width fill ]
+                        [ viewDetailRow
+                            [ paragraph [] [ text <| capitalize <| T.amountToString totalAmount, text " was scheduled to be released." ] ]
+                            [ viewTable ctx
+                                { data = event.releaseSchedule
+                                , columns =
+                                    [ { header = text "Release date"
+                                      , width = fill
+                                      , view = \i ( timestamp, _ ) -> el [ centerX ] <| text <| TimeHelpers.formatTime Time.utc timestamp
+                                      }
+                                    , { header = text "Amount"
+                                      , width = fill
+                                      , view = \i ( _, amount ) -> text <| T.amountToString amount
+                                      }
+                                    ]
+                                }
+                            ]
+                        ]
             }
 
         TransactionEventEncryptedSelfAmountAdded event ->
-            { icon = html <| Icons.shield 20
-            , tooltip = "Shield amount"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| T.amountToString event.amount ++ " was shielded on "
                     , viewAddress ctx (T.AddressAccount event.account)
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventAmountAddedByDecryption event ->
-            { icon = html <| Icons.shield 20
-            , tooltip = "Unshield amount"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| T.amountToString event.amount ++ " was unshielded on "
                     , viewAddress ctx (T.AddressAccount event.account)
                     ]
                 ]
+            , details = Nothing
             }
 
         -- Encrypted transfers
         TransactionEventNewEncryptedAmount event ->
-            { icon = html <| Icons.shield 20
-            , tooltip = "Recieve encrypted amount"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ viewAddress ctx (T.AddressAccount event.account)
                     , text " received an encrypted amount."
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventEncryptedAmountsRemoved event ->
-            { icon = html <| Icons.shield 20
-            , tooltip = "Transfer encrypted amount"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ viewAddress ctx (T.AddressAccount event.account)
                     , text " transferred an encrypted amount."
                     ]
                 ]
+            , details = Nothing
             }
 
         -- Accounts
         TransactionEventAccountCreated event ->
-            { icon = html <| Icons.account_key_deployed 18
-            , tooltip = "Account creation"
-            , details = Nothing
-            , content =
+            { content =
                 [ row
                     []
                     [ text <| "Created account"
@@ -1069,13 +1382,11 @@ viewTransactionEvent ctx txEvent =
                     , viewAddress ctx (T.AddressAccount event.account)
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventCredentialDeployed event ->
-            { icon = html <| Icons.account_credentials_deployed 18
-            , tooltip = "Account credentials deployment"
-            , details = Nothing
-            , content =
+            { content =
                 [ row
                     []
                     [ text <| "Deployed credentials"
@@ -1083,74 +1394,60 @@ viewTransactionEvent ctx txEvent =
                     , viewAddress ctx (T.AddressAccount event.account)
                     ]
                 ]
+            , details = Nothing
             }
 
         -- Account Keys
         TransactionEventAccountKeysUpdated ->
             -- TODO: Change icon
-            { icon = html <| Icons.account_key_deployed 18
-            , tooltip = "Account keys updated"
-            , details = Nothing
-            , content =
+            { content =
                 [ text "Updated account keys" ]
+            , details = Nothing
             }
 
         TransactionEventAccountKeysAdded ->
             -- TODO: Change icon
-            { icon = html <| Icons.account_key_deployed 18
-            , tooltip = "Account keys added"
+            { content = [ text "Added account keys" ]
             , details = Nothing
-            , content = [ text "Added account keys" ]
             }
 
         TransactionEventAccountKeysRemoved ->
             -- TODO: Change icon
-            { icon = html <| Icons.account_key_deployed 18
-            , tooltip = "Account keys removed"
+            { content = [ text "Removed account keys" ]
             , details = Nothing
-            , content = [ text "Removed account keys" ]
             }
 
         TransactionEventAccountKeysSignThresholdUpdated ->
             -- TODO: Change icon
-            { icon = html <| Icons.account_key_deployed 18
-            , tooltip = "Account keys sign threshold updated"
+            { content = [ text "Updated signing threshold" ]
             , details = Nothing
-            , content = [ text "Updated signing threshold" ]
             }
 
         -- Baking
         TransactionEventBakerAdded event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker addition"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Added"
                     , arrowRight
                     , viewBaker ctx event.bakerId event.account
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventBakerRemoved event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker removal"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Removed"
                     , arrowRight
                     , viewBaker ctx event.bakerId event.account
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventBakerStakeIncreased event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker stake increase"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Increased stake"
                     , arrowRight
@@ -1159,13 +1456,11 @@ viewTransactionEvent ctx txEvent =
                     , text <| T.amountToString event.newStake
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventBakerStakeDecreased event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker stake decrease"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Decreased stake"
                     , arrowRight
@@ -1174,13 +1469,11 @@ viewTransactionEvent ctx txEvent =
                     , text <| T.amountToString event.newStake
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventBakerSetRestakeEarnings event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker restake earnings change"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Restake earnings"
                     , arrowRight
@@ -1194,13 +1487,11 @@ viewTransactionEvent ctx txEvent =
                             "Unset"
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventBakerKeysUpdated event ->
-            { icon = html <| Icons.baking_bread 20
-            , tooltip = "Baker keys update"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Updated baker keys"
                     , arrowRight
@@ -1216,14 +1507,12 @@ viewTransactionEvent ctx txEvent =
                             String.left 8 event.signKey
                     ]
                 ]
+            , details = Nothing
             }
 
         -- Contracts
         TransactionEventModuleDeployed event ->
-            { icon = html <| Icons.smart_contract_deploy 20
-            , tooltip = "Module deployment"
-            , details = Nothing
-            , content =
+            { content =
                 [ row []
                     [ text <| "Deployed module"
                     , arrowRight
@@ -1237,11 +1526,17 @@ viewTransactionEvent ctx txEvent =
                             String.left 8 event.contents
                     ]
                 ]
+            , details = Nothing
             }
 
         TransactionEventContractInitialized event ->
-            { icon = html <| Icons.smart_contract_add_new 20
-            , tooltip = "Contract instantiation"
+            { content =
+                [ row []
+                    [ text <| "Instantiated contract '" ++ event.contractName ++ "' with address: "
+                    , viewAsAddressContract ctx event.address
+                    , text <| " from module: " ++ String.left 8 event.ref
+                    ]
+                ]
             , details =
                 Just <|
                     column [ width fill ]
@@ -1249,7 +1544,8 @@ viewTransactionEvent ctx txEvent =
                             [ paragraph [] [ text "Contract instance was initialized" ] ]
                             [ viewKeyValue ctx
                                 [ ( "Module", el [ stringTooltipAboveWithCopy ctx "", pointer, onClick (CopyToClipboard event.ref) ] <| text event.ref )
-                                , ( "Contract address", viewAsAddressContract ctx event.address )
+                                , ( "Contract address", viewAddress ctx <| T.AddressContract event.address )
+                                , ( "Contract", text <| event.contractName )
                                 , ( "Amount", text <| T.amountToString event.amount )
                                 ]
                             ]
@@ -1262,34 +1558,29 @@ viewTransactionEvent ctx txEvent =
                                 viewKeyValue ctx <| List.indexedMap (\i e -> ( String.fromInt i, text e )) event.events
                             ]
                         ]
-            , content =
-                [ row []
-                    [ text "Instantiated contract with address: "
-                    , viewAsAddressContract ctx event.address
-                    ]
-                ]
             }
 
         TransactionEventContractUpdated event ->
-            -- TODO: Show information about contract events.
-            { icon = html <| Icons.smart_contract_message 20
-            , tooltip = "Contract update"
+            { content =
+                [ row []
+                    [ text <| "Updated contract instance at address: "
+                    , viewAsAddressContract ctx event.address
+                    ]
+                ]
             , details =
                 Just <|
                     column [ width fill ]
                         [ viewDetailRow
                             [ paragraph [] [ text "Contract instance was updated" ] ]
                             [ viewKeyValue ctx
-                                [ ( "Contract address", viewAsAddressContract ctx event.address )
+                                [ ( "Contract address", viewAddress ctx <| T.AddressContract event.address )
+                                , ( "Contract", text event.receiveName.contractName )
+                                , ( "Function", text event.receiveName.functionName )
                                 , ( "Amount", text <| T.amountToString event.amount )
-                                , ( "Parameter", text <| event.message )
                                 ]
                             ]
                         , viewDetailRow
-                            [ paragraph [] [ text "Crontact actions" ] ]
-                            []
-                        , viewDetailRow
-                            [ paragraph [] [ text "Crontact events emitted" ] ]
+                            [ paragraph [] [ text "Contract events emitted" ] ]
                             [ if List.isEmpty event.events then
                                 paragraph [ Font.center ] [ text "No events" ]
 
@@ -1297,32 +1588,15 @@ viewTransactionEvent ctx txEvent =
                                 viewKeyValue ctx <| List.indexedMap (\i e -> ( String.fromInt i, text e )) event.events
                             ]
                         ]
-            , content =
-                [ row []
-                    [ text "Updated contract at "
-                    , viewAsAddressContract ctx event.address
-                    ]
-                ]
             }
 
         TransactionEventUpdateEnqueued event ->
-            { icon = html <| Icons.system_cog 20
-            , tooltip = "Chain update enqueued"
+            { content =
+                [ text <| "Update enqueued to take effect " ++ TimeHelpers.formatTime Time.utc event.effectiveTime
+                ]
             , details =
                 Just <|
                     viewEventUpdateEnueuedDetails ctx event
-            , content =
-                [ text <| "Update enqueued to take effect " ++ TimeHelpers.formatTime Time.utc event.effectiveTime
-                ]
-            }
-
-        -- Errors
-        TransactionEventRejected event ->
-            { icon = Element.none
-            , tooltip = ""
-            , details = Nothing
-            , content =
-                [ text event.reason ]
             }
 
 
@@ -1338,8 +1612,8 @@ viewEventUpdateEnueuedDetails ctx event =
                 [ el [ centerX ] <| viewHeaderBox ctx ctx.palette.fg2 "Minted pr. slot" <| text <| String.fromFloat mintDistribution.mintPerSlot
                 , viewBar
                     ctx
-                    [ { color = ctx.palette.c1, percentage = mintDistribution.bakingReward, hint = "Baking Reward Account" }
-                    , { color = ctx.palette.c2, percentage = mintDistribution.finalizationReward, hint = "Finalization Reward Account" }
+                    [ { color = ctx.palette.c1, percentage = mintDistribution.bakingReward, hint = bakingRewardAccountUpper }
+                    , { color = ctx.palette.c2, percentage = mintDistribution.finalizationReward, hint = finalizationRewardAccountUpper }
                     , { color = ctx.palette.fg2, percentage = foundationFraction, hint = "Foundation" }
                     ]
                 ]
@@ -1392,16 +1666,33 @@ viewEventUpdateEnueuedDetails ctx event =
             paragraph [ padding 20 ] [ text "Update the election difficulty to ", text <| asPercentage difficulty ]
 
         EuroPerEnergyPayload euroPerEnergy ->
-            paragraph [ padding 20 ] [ text "Update the Euro per energy to ", text <| String.fromFloat euroPerEnergy ]
+            row []
+                [ paragraph [ padding 20 ] [ text "Update the Euro per energy to " ]
+                , viewRelation ctx euroPerEnergy
+                ]
 
         MicroGtuPerEnergyPayload microGtuPerEnergy ->
-            paragraph [ padding 20 ] [ text "Update the amount of μGTU per energy to ", text <| String.fromInt microGtuPerEnergy ]
+            row []
+                [ paragraph [ padding 20 ] [ text "Update the amount of μGTU per energy to " ]
+                , viewRelation ctx microGtuPerEnergy
+                ]
 
         FoundationAccountPayload foundationAccount ->
             paragraph [ padding 20 ] [ text "Update the Foundation account to be ", viewAddress ctx <| T.AddressAccount foundationAccount ]
 
         AuthorizationPayload authorization ->
             paragraph [ padding 20 ] [ text "Update the chain update authorization." ]
+
+
+{-| Display a relation as a fraction
+-}
+viewRelation : Context a -> Relation -> Element msg
+viewRelation ctx relation =
+    column [ spacing 5 ]
+        [ el [ centerX ] <| text <| String.fromInt relation.numerator
+        , el [ width fill, Border.widthEach { top = 0, left = 0, right = 0, bottom = 1 }, Border.color ctx.palette.fg2 ] none
+        , el [ centerX ] <| text <| String.fromInt relation.denominator
+        ]
 
 
 viewAsAddressContract : Context a -> T.ContractAddress -> Element Msg
@@ -1454,20 +1745,6 @@ viewBaker ctx bakerId addr =
         [ viewAddress ctx <| T.AddressAccount addr
         , text <| "(Baker: " ++ String.fromInt bakerId ++ ")"
         ]
-
-
-{-| Show 'details' and the release schedule on hover.
--}
-viewTransferredWithScheduleDetails : Context a -> EventTransferredWithSchedule -> Element Msg
-viewTransferredWithScheduleDetails ctx event =
-    let
-        viewRelease ( timestamp, amount ) =
-            T.amountToString amount ++ " at " ++ TimeHelpers.formatTime Time.utc timestamp
-    in
-    viewDetailsTextWithOnHover ctx <|
-        "Release schedule:\n\n"
-            -- TODO: Show differently when list is large, as it can contain 255 releases.
-            ++ (event.releaseSchedule |> List.map viewRelease |> String.join "\n")
 
 
 {-| Show the text 'details' and, on hover, show the String provided.

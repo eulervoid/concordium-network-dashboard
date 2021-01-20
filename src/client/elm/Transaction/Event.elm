@@ -39,8 +39,6 @@ type TransactionEvent
     | TransactionEventContractUpdated EventContractUpdated
       -- Core
     | TransactionEventUpdateEnqueued EventUpdateEnqueued
-      -- Errors
-    | TransactionEventRejected EventRejected
 
 
 
@@ -168,6 +166,7 @@ type alias EventContractInitialized =
     { ref : String
     , address : T.ContractAddress
     , amount : T.Amount
+    , contractName : String
     , events : List T.ContractEvent
     }
 
@@ -177,6 +176,7 @@ type alias EventContractUpdated =
     , instigator : T.Address
     , amount : T.Amount
     , message : String
+    , receiveName : T.ReceiveName
     , events : List T.ContractEvent
     }
 
@@ -196,8 +196,8 @@ type UpdatePayload
     | TransactionFeeDistributionPayload TransactionFeeDistribution
     | GasRewardsPayload GasRewards
     | ElectionDifficultyPayload Float
-    | EuroPerEnergyPayload Float
-    | MicroGtuPerEnergyPayload Int
+    | EuroPerEnergyPayload Relation
+    | MicroGtuPerEnergyPayload Relation
     | FoundationAccountPayload T.AccountAddress
     | AuthorizationPayload Authorization
 
@@ -251,6 +251,20 @@ type alias Authorization =
 --     { authorizedKeys : List KeyIndex
 --     , threshold : Int
 --     }
+-- Errors
+
+
+type alias Relation =
+    { denominator : Int
+    , numerator : Int
+    }
+
+
+relationDecoder : D.Decoder Relation
+relationDecoder =
+    D.succeed Relation
+        |> required "denominator" D.int
+        |> required "numerator" D.int
 
 
 updatePayloadDecoder : D.Decoder UpdatePayload
@@ -272,10 +286,10 @@ updatePayloadDecoder =
                         D.float |> D.map ElectionDifficultyPayload
 
                     "euroPerEnergy" ->
-                        D.float |> D.map EuroPerEnergyPayload
+                        relationDecoder |> D.map EuroPerEnergyPayload
 
                     "microGTUPerEuro" ->
-                        D.int |> D.map MicroGtuPerEnergyPayload
+                        relationDecoder |> D.map MicroGtuPerEnergyPayload
 
                     "foundationAccount" ->
                         T.accountAddressDecoder |> D.map FoundationAccountPayload
@@ -316,18 +330,6 @@ gasRewardsDecoder =
 authorizationDecoder : D.Decoder Authorization
 authorizationDecoder =
     D.succeed Authorization
-
-
-
--- Errors
-
-
-type alias EventRejected =
-    -- @TODO swap to camel case
-    { transactionType : String
-    , reason : String
-    , hash : String
-    }
 
 
 transactionEventsDecoder : D.Decoder TransactionEvent
@@ -456,6 +458,7 @@ transactionEventsDecoder =
                         |> required "ref" D.string
                         |> required "address" T.contractAddressDecoder
                         |> required "amount" T.decodeAmount
+                        |> required "initName" T.contractInitNameDecoder
                         |> required "events" (D.list T.contractEventDecoder)
                         |> D.map TransactionEventContractInitialized
 
@@ -465,6 +468,7 @@ transactionEventsDecoder =
                         |> required "instigator" T.addressDecoder
                         |> required "amount" T.decodeAmount
                         |> required "message" D.string
+                        |> required "receiveName" T.contractReceiveNameDecoder
                         |> required "events" (D.list T.contractEventDecoder)
                         |> D.map TransactionEventContractUpdated
 
@@ -477,10 +481,6 @@ transactionEventsDecoder =
 
                 -- Errors
                 _ ->
-                    D.succeed EventRejected
-                        |> required "transactionType" D.string
-                        |> required "reason" D.string
-                        |> required "hash" D.string
-                        |> D.map TransactionEventRejected
+                    D.fail <| "Unknown event tag: " ++ tag
     in
     D.field "tag" D.string |> D.andThen decode
